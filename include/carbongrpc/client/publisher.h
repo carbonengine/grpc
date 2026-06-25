@@ -24,6 +24,7 @@
 #include "carbongrpc/client/connection.h"
 #include "carbongrpc/client/constants.h"
 #include "carbongrpc/client/jobs.h"
+#include "carbongrpc/client/reconnect_backoff.h"
 #include "carbongrpc/client/stream_status_log.h"
 
 // prometheus
@@ -107,6 +108,12 @@ public:
   void set_publisher_state(ClientState state);
   [[nodiscard]] ClientState publisher_state() const;
 
+  /// When enabled, a stream ending with UNAUTHENTICATED parks the publisher in
+  /// ClientState::kAuthRejected instead of reconnecting; re-arms on new
+  /// credentials (Metadata::set_auth_token) or SetConnection. Default off.
+  void set_auth_stop_enabled(bool enabled);
+  [[nodiscard]] bool auth_stop_enabled() const;
+
 protected:
 
   // Async
@@ -154,6 +161,16 @@ protected:
   // Stream status
   unsigned int stream_id_;
   StreamStatusLog stream_status_log_;
+
+  // Reconnect policy
+  ReconnectBackoff reconnect_backoff_;
+  std::atomic<bool> auth_stop_enabled_{false};
+  std::atomic<bool> auth_rejected_{false};
+  std::atomic<int> last_finish_code_{-1};
+  /// Child FinishStream() implementations must report the terminal stream
+  /// status through this instead of writing to stream_status_log_ directly.
+  void RecordFinishStatus(const grpc::Status& status);
+  void WaitBeforeReconnect();
 
   virtual std::string metrics_message() = 0;
   virtual std::string metrics_domain() = 0;
@@ -220,6 +237,7 @@ protected:
   CachedGauge publisher_state_connecting_{nullptr};
   CachedGauge publisher_state_active_{nullptr};
   CachedGauge publisher_state_shut_down_{nullptr};
+  CachedGauge publisher_state_auth_rejected_{nullptr};
   void UpdatePublisherStateMetrics(ClientState state);
 };
 
