@@ -4,6 +4,7 @@ using namespace monolith_grpc::client;
 
 std::string Metadata::application_instance_uuid_;
 std::string Metadata::auth_token_;
+std::atomic<std::uint64_t> Metadata::auth_generation_{0};
 
 // cppcheck-suppress unusedFunction
 void Metadata::ApplyToContext(::grpc::ClientContext& context) {
@@ -30,4 +31,9 @@ std::string Metadata::auth_token() {
 
 void Metadata::set_auth_token(const std::string& token) {
   auth_token_ = token;
+  auth_generation_.fetch_add(1, std::memory_order_release);
+}
+
+std::uint64_t Metadata::auth_generation() {
+  return auth_generation_.load(std::memory_order_acquire);
 }
