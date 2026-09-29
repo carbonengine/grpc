@@ -1,5 +1,11 @@
 # Copyright © 2025 CCP ehf.
 cmake_minimum_required(VERSION 3.16)
+
+option(BUILD_TESTING "Build and run tests." OFF)
+if (BUILD_TESTING)
+    list(APPEND VCPKG_MANIFEST_FEATURES "tests")
+endif()
+
 project(carbon-grpc VERSION 1.0.0)
 
 include(cmake/CcpBuildConfigurations.cmake)
@@ -19,6 +25,10 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     endif()
     message(STATUS "Document generation settings: default=${BUILD_DOCUMENTATION_DEFAULT_FLAG}, option BUILD_DOCUMENTATION=${BUILD_DOCUMENTATION}")
     option(BUILD_DOCUMENTATION "Build Documentation" ${BUILD_DOCUMENTATION_DEFAULT_FLAG})
+
+    if (BUILD_TESTING)
+        add_subdirectory(tests/logging)
+    endif ()
 
     if(BUILD_DOCUMENTATION)
         # Set up sphinx build for Python autodoc comments.

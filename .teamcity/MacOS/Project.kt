@@ -20,22 +20,32 @@ import jetbrains.buildServer.configs.kotlin.triggers.vcs
 import jetbrains.buildServer.configs.kotlin.vcs.GitVcsRoot
 import jetbrains.buildServer.configs.kotlin.buildFeatures.provideAwsCredentials
 
-val Debug = CarbonBuildMacOS("Debug MacOS", "Debug", "nmc-universal-osx-debug")
-val Internal = CarbonBuildMacOS("Internal MacOS", "Internal", "nmc-universal-osx-internal")
-val TrinityDev = CarbonBuildMacOS("TrinityDev MacOS", "TrinityDev", "nmc-universal-osx-trinitydev")
-val Release = CarbonBuildMacOS("Release MacOS", "Release", "nmc-universal-osx-release")
+val arm64_Debug = CarbonBuildMacOS("Debug MacOS arm64", "Debug", "arm64-osx-debug", "aarch64")
+val arm64_Internal = CarbonBuildMacOS("Internal MacOS arm64", "Internal", "arm64-osx-internal", "aarch64")
+val arm64_TrinityDev = CarbonBuildMacOS("TrinityDev MacOS arm64", "TrinityDev", "arm64-osx-trinitydev", "aarch64")
+val arm64_Release = CarbonBuildMacOS("Release MacOS arm64", "Release", "arm64-osx-release", "aarch64")
+
+val x64_Debug = CarbonBuildMacOS("Debug MacOS x64", "Debug", "x64-osx-debug", "x86_64")
+val x64_Internal = CarbonBuildMacOS("Internal MacOS x64", "Internal", "x64-osx-internal", "x86_64")
+val x64_TrinityDev = CarbonBuildMacOS("TrinityDev MacOS x64", "TrinityDev", "x64-osx-trinitydev", "x86_64")
+val x64_Release = CarbonBuildMacOS("Release MacOS x64", "Release", "x64-osx-release", "x86_64")
 
 object Project : Project({
     id("MacOS")
     name = "macOS"
 
-    buildType(Debug)
-    buildType(Internal)
-    buildType(TrinityDev)
-    buildType(Release)
+    buildType(arm64_Debug)
+    buildType(arm64_Internal)
+    buildType(arm64_TrinityDev)
+    buildType(arm64_Release)
+
+    buildType(x64_Debug)
+    buildType(x64_Internal)
+    buildType(x64_TrinityDev)
+    buildType(x64_Release)
 })
 
-class CarbonBuildMacOS(buildName: String, configType: String, preset: String) : BuildType({
+class CarbonBuildMacOS(buildName: String, configType: String, preset: String, agentArchitecture: String) : BuildType({
     id(buildName.toId())
     name = buildName
 
@@ -49,8 +59,6 @@ class CarbonBuildMacOS(buildName: String, configType: String, preset: String) : 
         param("teamcity.vcsTrigger.runBuildInNewEmptyBranch", "true")
         param("github_checkout_folder", "github")
         param("env.CTEST_JUNIT_OUTPUT_FILE", "ctest_results.xml")
-        select("env.VISUAL_STUDIO_PLATFORM_TOOLSET", "v141", label = "Visual Studio Platform Toolset", description = "Specify the toolset for the build. e.g. v141 or v143.",
-                options = listOf("v141 (2017)" to "v141", "v143 (2022)" to "v143"))
         param("env.CMAKE_BUILD_TARGETS", "all")
         param("env.CMAKE_INSTALL_PREFIX", ".build-artifact")
         param("env.SENTRY_PROJECT", "exefile-crashes")
@@ -170,6 +178,7 @@ class CarbonBuildMacOS(buildName: String, configType: String, preset: String) : 
 
     requirements {
         startsWith("teamcity.agent.jvm.os.name", "Mac OS X")
+        startsWith("teamcity.agent.jvm.os.arch", agentArchitecture)
     }
 })
 

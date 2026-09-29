@@ -1,6 +1,5 @@
 package _Self
 
-import _Self.buildTypes.*
 import jetbrains.buildServer.configs.kotlin.*
 import jetbrains.buildServer.configs.kotlin.Project
 import jetbrains.buildServer.configs.kotlin.vcs.GitVcsRoot
@@ -18,6 +17,4 @@ object Project : Project({
     
     subProject(Windows.Project)
     subProject(MacOS.Project)
-
-    buildType(PublishToPerforce)
 })

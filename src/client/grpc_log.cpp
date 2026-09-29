@@ -1,11 +1,78 @@
 // Copyright © 2025 CCP ehf.
-#include "carbongrpc/client/grpc_log.h"
-
 #include <list>
 #include <mutex>
 #include <string>
+#include <memory>
+
+#include <absl/log/log_sink_registry.h>
+#include <absl/log/globals.h>
+#include <CCPLog.h>
+
+#include "carbongrpc/client/grpc_log.h"
 
 namespace monolith_grpc::client {
+
+static CcpLogChannel_t s_chGRPC { 1, "carbon-grpc", "grpc", 0 };
+
+class LogSink : public absl::LogSink
+{
+public:
+	void Send(const absl::LogEntry& entry) override
+	{
+		auto severityEnumType = entry.log_severity();
+
+		auto sourceFile = std::string(entry.source_filename());
+		int sourceLine = entry.source_line();
+		auto message = std::string(entry.text_message());
+
+		switch (severityEnumType)
+		{
+		case absl::LogSeverity::kInfo:
+			CCP_LOG_CH(s_chGRPC, "%s (%s:%d)", message.c_str(), sourceFile.c_str(), sourceLine );
+			break;
+		case absl::LogSeverity::kWarning:
+			CCP_LOGWARN_CH(s_chGRPC, "%s (%s:%d)", message.c_str(), sourceFile.c_str(), sourceLine );
+			break;
+		case absl::LogSeverity::kFatal:
+		case absl::LogSeverity::kError:
+			CCP_LOGERR_CH(s_chGRPC, "%s (%s:%d)", message.c_str(), sourceFile.c_str(), sourceLine );
+			break;
+		}
+
+		// the rest of this function only exists to support deprecated behaviour that exposes logs to python
+
+		int severity  {static_cast<std::underlying_type_t<decltype(severityEnumType)>>(severityEnumType)};
+		if (severity < m_verbosity)
+		{
+			return;
+		}
+		std::scoped_lock lock(m_lock);
+		m_log.emplace_back(GrpcLogEntry(sourceFile, sourceLine, (gpr_log_severity)severity, message));
+		while (m_log.size() > 10000) {
+			m_log.pop_front();
+		}
+	}
+
+	void SetVerbosity(int verbosity)
+	{
+		m_verbosity = verbosity;
+	}
+
+	std::list<GrpcLogEntry> GetLogEntries()
+	{
+		std::scoped_lock lock(m_lock);
+
+		std::list<GrpcLogEntry> result = std::move(m_log);
+		m_log = std::list<GrpcLogEntry>();
+
+		return result;
+	}
+
+private:
+	std::mutex m_lock;
+	std::list<GrpcLogEntry> m_log;
+	int m_verbosity{GPR_LOG_SEVERITY_ERROR};
+};
 
 GrpcLogEntry::GrpcLogEntry(std::string file, int line, gpr_log_severity severity, std::string message)
   : file(std::move(file)),
@@ -15,43 +82,28 @@ GrpcLogEntry::GrpcLogEntry(std::string file, int line, gpr_log_severity severity
 }
 
 std::once_flag GrpcLog::init_flag_;
-
-std::list<GrpcLogEntry> GrpcLog::log_;
-std::mutex GrpcLog::lock_;
-
-size_t GrpcLog::max_log_records_ = 10000;
+static std::unique_ptr<LogSink> log_sink;
 
 void GrpcLog::Initialize() {
-  std::call_once(GrpcLog::init_flag_, []() { gpr_set_log_function(GrpcLog::Log); });
+  std::call_once(init_flag_, []() {
+  	log_sink = std::make_unique<LogSink>();
+  	absl::AddLogSink( log_sink.get() );
+  	absl::SetStderrThreshold(absl::LogSeverity::kFatal);
+  });
 }
 
 // cppcheck-suppress unusedFunction
+[[deprecated ("All grpc logging goes to CCP_LOG through an abseil log sink")]]
 void GrpcLog::SetLogLevel(gpr_log_severity level) {
   Initialize();
-  gpr_set_log_verbosity(level);
+  log_sink->SetVerbosity( level );
 }
 
 // cppcheck-suppress unusedFunction
+[[deprecated ("All grpc logging goes to CCP_LOG through an abseil log sink")]]
 std::list<GrpcLogEntry> GrpcLog::GetLogEntries() {
   Initialize();
-  std::scoped_lock<std::mutex> lock(GrpcLog::lock_);
-
-  std::list<GrpcLogEntry> result = std::move(GrpcLog::log_);
-  GrpcLog::log_ = std::list<GrpcLogEntry>();
-
-  return result;
-}
-
-void GrpcLog::Log(gpr_log_func_args* args) {
-  std::scoped_lock<std::mutex> lock(GrpcLog::lock_);
-
-  log_.emplace_back(GrpcLogEntry(args->file, args->line, args->severity, args->message));
-
-  if (max_log_records_ > 0) {
-    while (log_.size() > max_log_records_) {
-      log_.pop_front();
-    }
-  }
+  return log_sink->GetLogEntries();
 }
 
 }  // namespace monolith_grpc::client
