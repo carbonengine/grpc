@@ -6,7 +6,7 @@
     },
     {
       "name": "protobuf",
-      "version>=": "3.17.3#3",
+      "version>=": "6.33.4",
       "features": ["pyext"]
     },
     {
@@ -16,6 +16,31 @@
     {
       "name": "carbon-prometheus",
       "version>=": "4.1.2#1"
+    },
+    {
+      "name": "carbon-core",
+      "version>=": "3.0.1"
+    }
+  ],
+  "features": {
+    "tests": {
+      "description": "Enable tests",
+      "dependencies": [
+        {
+          "name": "abseil",
+          "host": true
+        },
+        {
+          "name": "gtest",
+          "host": true
+        }
+      ]
+    }
+  },
+  "overrides": [
+    {
+      "name": "openssl",
+      "version": "1.1.1k#8"
     }
   ]
 }

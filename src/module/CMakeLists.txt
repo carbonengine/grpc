@@ -10,7 +10,7 @@ ccp_add_library(module STATIC
 set_property(TARGET module PROPERTY CXX_STANDARD 17)
 
 target_include_directories(module
-    PRIVATE
+    PUBLIC
         $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
