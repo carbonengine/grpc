@@ -27,6 +27,7 @@ enum class ClientState {
   kConnecting,
   kActive,
   kShutDown,
+  kAuthRejected,  ///< parked after UNAUTHENTICATED; re-arms on new credentials
 };
 
 }  // namespace monolith_grpc

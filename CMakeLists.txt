@@ -6,7 +6,7 @@ if (BUILD_TESTING)
     list(APPEND VCPKG_MANIFEST_FEATURES "tests")
 endif()
 
-project(carbon-grpc VERSION 1.0.0)
+project(carbon-grpc VERSION 1.1.0)
 
 include(cmake/CcpBuildConfigurations.cmake)
 include(cmake/CcpTargetConfigurations.cmake)

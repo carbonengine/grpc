@@ -4,6 +4,8 @@
 
 #include <grpcpp/grpcpp.h>
 
+#include <atomic>
+#include <cstdint>
 #include <string>
 
 namespace monolith_grpc::client {
@@ -18,10 +20,15 @@ public:
   [[nodiscard]] static std::string auth_token();
   static void set_auth_token(const std::string& token);
 
+  /// Incremented every time set_auth_token is called. Clients parked after an
+  /// UNAUTHENTICATED rejection watch this to know fresh credentials arrived.
+  [[nodiscard]] static std::uint64_t auth_generation();
+
 private:
 
   static std::string application_instance_uuid_;
   static std::string auth_token_;
+  static std::atomic<std::uint64_t> auth_generation_;
 };
 }  // namespace monolith_grpc
 

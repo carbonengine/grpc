@@ -59,7 +59,8 @@ Broker<RequestType, ResponseType, ServiceType>::Broker()
     broker_state_unknown_(nullptr),
     broker_state_connecting_(nullptr),
     broker_state_active_(nullptr),
-    broker_state_shut_down_(nullptr) {
+    broker_state_shut_down_(nullptr),
+    broker_state_auth_rejected_(nullptr) {
   set_broker_state(ClientState::kUnknown);
 }
 
@@ -128,6 +129,7 @@ void Broker<RequestType, ResponseType, ServiceType>::SetConnection(std::shared_p
     };
 
     // Now we can set the new connection and resume the broker thread
+    auth_rejected_ = false;
     request_disconnect_ = false;
     connection_ = connection;
     if (connection) {
@@ -410,6 +412,9 @@ void Broker<RequestType, ResponseType, ServiceType>::set_metric_registry(
       metrics_creator.assign_label(state_key, "shut_down");
       broker_state_shut_down_ = metrics_creator.MakeGauge(state_metric);
 
+      metrics_creator.assign_label(state_key, "auth_rejected");
+      broker_state_auth_rejected_ = metrics_creator.MakeGauge(state_metric);
+
       metrics_creator.remove_label(state_key);
 
       lock.unlock();
@@ -454,6 +459,7 @@ void Broker<RequestType, ResponseType, ServiceType>::set_broker_state(ClientStat
     {ClientState::kConnecting, "Connecting"},
     {ClientState::kActive, "Active"},
     {ClientState::kShutDown, "Shutdown"},
+    {ClientState::kAuthRejected, "AuthRejected"},
   };
   // printf("broker state %s -> %s\n", states[broker_state_], states[state]);
 
@@ -465,6 +471,52 @@ void Broker<RequestType, ResponseType, ServiceType>::set_broker_state(ClientStat
 template<typename RequestType, typename ResponseType, typename ServiceType>
 ClientState Broker<RequestType, ResponseType, ServiceType>::broker_state() const {
   return broker_state_;
+}
+
+template<typename RequestType, typename ResponseType, typename ServiceType>
+void Broker<RequestType, ResponseType, ServiceType>::set_auth_stop_enabled(bool enabled) {
+  auth_stop_enabled_ = enabled;
+}
+
+template<typename RequestType, typename ResponseType, typename ServiceType>
+bool Broker<RequestType, ResponseType, ServiceType>::auth_stop_enabled() const {
+  return auth_stop_enabled_;
+}
+
+template<typename RequestType, typename ResponseType, typename ServiceType>
+void Broker<RequestType, ResponseType, ServiceType>::RecordFinishStatus(const grpc::Status& status) {
+  last_finish_code_ = (int)status.error_code();
+  stream_status_log_.RecordStatus(stream_id_, status);
+}
+
+template<typename RequestType, typename ResponseType, typename ServiceType>
+void Broker<RequestType, ResponseType, ServiceType>::WaitBeforeReconnect() {
+  reconnect_backoff_.NoteStreamEnd();
+
+  if (shutting_down_ || request_disconnect_) {
+    return;
+  }
+
+  if (auth_stop_enabled_ && last_finish_code_ == (int)grpc::StatusCode::UNAUTHENTICATED) {
+    // Retrying with the same credentials can never succeed; park until new
+    // credentials arrive (Metadata::set_auth_token bumps the generation),
+    // the connection is replaced, or we shut down.
+    auth_rejected_ = true;
+    set_broker_state(ClientState::kAuthRejected);
+    const auto parked_generation = Metadata::auth_generation();
+    while (!shutting_down_ && !request_disconnect_ && auth_rejected_ &&
+           Metadata::auth_generation() == parked_generation) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    auth_rejected_ = false;
+    last_finish_code_ = -1;
+    reconnect_backoff_.Reset();
+    return;
+  }
+
+  reconnect_backoff_.SleepFor(reconnect_backoff_.NextDelay(), [this] {
+    return shutting_down_.load() || request_disconnect_.load();
+  });
 }
 
 template<typename RequestType, typename ResponseType, typename ServiceType>
@@ -491,6 +543,7 @@ void Broker<RequestType, ResponseType, ServiceType>::ConnectionMonitor() {
       Connection::ConnectionMessage message;
       if (connection_listener_->Read(message)) {
         if (message == Connection::ConnectionMessage::kConnected) {
+          auth_rejected_ = false;
           request_disconnect_ = false;
         } else if (message == Connection::ConnectionMessage::kDisconnected) {
           {
@@ -558,18 +611,26 @@ void Broker<RequestType, ResponseType, ServiceType>::BrokerThread() {
       continue;
     }
 
+    bool stream_prepared = false;
     {
       std::scoped_lock<std::mutex> context_lock(context_lock_);
       context_ = std::make_unique<grpc::ClientContext>();
       monolith_grpc::client::Metadata::ApplyToContext(*context_);
 
-      if (!PrepareStream(context_.get())) {
-        continue;
-      }
+      stream_prepared = PrepareStream(context_.get());
+    }
+
+    if (!stream_prepared) {
+      // outside context_lock_: SetConnection/ConnectionMonitor must be able
+      // to grab the lock (and abort this wait) while we sleep
+      WaitBeforeReconnect();
+      continue;
     }
 
     stream_id_ = StreamCounter::AssignStreamId();
 
+    last_finish_code_ = -1;
+    reconnect_backoff_.NoteStreamStart();
     set_broker_state(ClientState::kActive);
 
     {
@@ -625,6 +686,8 @@ void Broker<RequestType, ResponseType, ServiceType>::BrokerThread() {
       std::scoped_lock<std::mutex> context_lock(context_lock_);
       context_.reset(nullptr);
     }
+
+    WaitBeforeReconnect();
   }
 
   // todo: cleanup remaining messages
@@ -778,7 +841,7 @@ void Broker<RequestType, ResponseType, ServiceType>::FinishStream() {
     }
 
     auto status = stream_->Finish();
-    stream_status_log_.RecordStatus(stream_id_, status);
+    RecordFinishStatus(status);
   }
 
   stream_ = nullptr;
@@ -802,6 +865,8 @@ void Broker<RequestType, ResponseType, ServiceType>::ReadMessagesInternal() {
     if (!read_ok) {
       return;
     }
+
+    reconnect_backoff_.NoteHealthy();
 
     // Update metrics
     total_messages_pulled_.Increment();
@@ -888,6 +953,7 @@ void Broker<RequestType, ResponseType, ServiceType>::CommitMetrics() {
   broker_state_connecting_.Commit();
   broker_state_active_.Commit();
   broker_state_shut_down_.Commit();
+  broker_state_auth_rejected_.Commit();
 }
 
 template<typename RequestType, typename ResponseType, typename ServiceType>
@@ -966,5 +1032,11 @@ void Broker<RequestType, ResponseType, ServiceType>::UpdateBrokerStateMetrics(Cl
     broker_state_shut_down_.Set((double)1);
   } else {
     broker_state_shut_down_.Set((double)0);
+  }
+
+  if (state == ClientState::kAuthRejected) {
+    broker_state_auth_rejected_.Set((double)1);
+  } else {
+    broker_state_auth_rejected_.Set((double)0);
   }
 }

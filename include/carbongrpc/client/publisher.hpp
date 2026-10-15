@@ -124,6 +124,7 @@ void Publisher<MessageType>::SetConnection(std::shared_ptr<Connection> connectio
     };
 
     // Now we can set the new connection and resume the publisher thread
+    auth_rejected_ = false;
     request_disconnect_ = false;
     connection_ = connection;
     if (connection) {
@@ -351,6 +352,9 @@ void Publisher<MessageType>::set_metric_registry(
       metrics_creator.assign_label(state_key, "shut_down");
       publisher_state_shut_down_ = metrics_creator.MakeGauge(state_metric);
 
+      metrics_creator.assign_label(state_key, "auth_rejected");
+      publisher_state_auth_rejected_ = metrics_creator.MakeGauge(state_metric);
+
       metrics_creator.remove_label(state_key);
 
       lock.unlock();
@@ -425,6 +429,7 @@ void Publisher<MessageType>::set_publisher_state(ClientState state) {
     {ClientState::kConnecting, "Connecting"},
     {ClientState::kActive, "Active"},
     {ClientState::kShutDown, "Shutdown"},
+    {ClientState::kAuthRejected, "AuthRejected"},
   };
   // printf("publisher state %s -> %s\n", states[publisher_state_],
   // states[state]);
@@ -437,6 +442,51 @@ void Publisher<MessageType>::set_publisher_state(ClientState state) {
 template<typename MessageType>
 ClientState Publisher<MessageType>::publisher_state() const {
   return publisher_state_;
+}
+
+template<typename MessageType>
+void Publisher<MessageType>::set_auth_stop_enabled(bool enabled) {
+  auth_stop_enabled_ = enabled;
+}
+
+template<typename MessageType>
+bool Publisher<MessageType>::auth_stop_enabled() const {
+  return auth_stop_enabled_;
+}
+
+template<typename MessageType>
+void Publisher<MessageType>::RecordFinishStatus(const grpc::Status& status) {
+  last_finish_code_ = (int)status.error_code();
+  stream_status_log_.RecordStatus(stream_id_, status);
+}
+
+template<typename MessageType>
+void Publisher<MessageType>::WaitBeforeReconnect() {
+  reconnect_backoff_.NoteStreamEnd();
+
+  if (shutting_down_ || request_disconnect_) {
+    return;
+  }
+
+  if (auth_stop_enabled_ && last_finish_code_ == (int)grpc::StatusCode::UNAUTHENTICATED) {
+    // Retrying with the same credentials can never succeed; park until new
+    // credentials arrive, the connection is replaced, or we shut down.
+    auth_rejected_ = true;
+    set_publisher_state(ClientState::kAuthRejected);
+    const auto parked_generation = Metadata::auth_generation();
+    while (!shutting_down_ && !request_disconnect_ && auth_rejected_ &&
+           Metadata::auth_generation() == parked_generation) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    auth_rejected_ = false;
+    last_finish_code_ = -1;
+    reconnect_backoff_.Reset();
+    return;
+  }
+
+  reconnect_backoff_.SleepFor(reconnect_backoff_.NextDelay(), [this] {
+    return shutting_down_.load() || request_disconnect_.load();
+  });
 }
 
 template<typename MessageType>
@@ -491,6 +541,8 @@ bool Publisher<MessageType>::SetUpStream() {
 
 template<typename MessageType>
 void Publisher<MessageType>::ProcessMessages() {
+  last_finish_code_ = -1;
+  reconnect_backoff_.NoteStreamStart();
   set_publisher_state(ClientState::kActive);
 
   // Set up readers and writers
@@ -565,6 +617,7 @@ void Publisher<MessageType>::PublisherThread() {
     }
 
     if (!SetUpStream()) {
+      WaitBeforeReconnect();
       continue;
     }
 
@@ -583,6 +636,8 @@ void Publisher<MessageType>::PublisherThread() {
     ProcessMessages();
 
     channel_ = nullptr;
+
+    WaitBeforeReconnect();
   }
 
   // todo: cleanup remaining messages
@@ -626,6 +681,7 @@ void Publisher<MessageType>::PublishMessages() {
 
     if (write_ok) {
       unpacked->time_delivered = clock::now();
+      reconnect_backoff_.NoteHealthy();
       messages_published_success_.Increment();
       bytes_published_success_.Increment((double)message_size);
 
@@ -816,6 +872,7 @@ void Publisher<MessageType>::ConnectionMonitor() {
       Connection::ConnectionMessage message;
       if (connection_listener_->Read(message)) {
         if (message == Connection::ConnectionMessage::kConnected) {
+          auth_rejected_ = false;
           request_disconnect_ = false;
         } else if (message == Connection::ConnectionMessage::kDisconnected) {
           std::scoped_lock<std::mutex> queue_lock(queue_lock_);
@@ -854,6 +911,7 @@ void Publisher<MessageType>::CommitMetrics() {
   publisher_state_connecting_.Commit();
   publisher_state_active_.Commit();
   publisher_state_shut_down_.Commit();
+  publisher_state_auth_rejected_.Commit();
 }
 
 template<typename MessageType>
@@ -918,5 +976,11 @@ void Publisher<MessageType>::UpdatePublisherStateMetrics(ClientState state) {
     publisher_state_shut_down_.Set((double)1);
   } else {
     publisher_state_shut_down_.Set((double)0);
+  }
+
+  if (state == ClientState::kAuthRejected) {
+    publisher_state_auth_rejected_.Set((double)1);
+  } else {
+    publisher_state_auth_rejected_.Set((double)0);
   }
 }

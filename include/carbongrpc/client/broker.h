@@ -26,6 +26,7 @@ using grpc::Status;
 #include "carbongrpc/client/connection.h"
 #include "carbongrpc/client/constants.h"
 #include "carbongrpc/client/jobs.h"
+#include "carbongrpc/client/reconnect_backoff.h"
 #include "carbongrpc/client/stream_status_log.h"
 
 // prometheus
@@ -127,6 +128,14 @@ public:
 
   [[nodiscard]] ClientState broker_state() const;
 
+  /// When enabled, a stream ending with UNAUTHENTICATED parks the broker in
+  /// ClientState::kAuthRejected instead of reconnecting: retrying with the
+  /// same credentials can never succeed. The broker re-arms when new
+  /// credentials arrive (Metadata::set_auth_token) or on SetConnection.
+  /// Default off to preserve existing behavior for current consumers.
+  void set_auth_stop_enabled(bool enabled);
+  [[nodiscard]] bool auth_stop_enabled() const;
+
 protected:
 
   void set_broker_state(ClientState state);
@@ -190,6 +199,16 @@ protected:
   // Listener
   std::atomic<bool> reader_exit_requested_{false};
   void ReadMessages();
+
+  // Reconnect policy
+  ReconnectBackoff reconnect_backoff_;
+  std::atomic<bool> auth_stop_enabled_{false};
+  std::atomic<bool> auth_rejected_{false};
+  std::atomic<int> last_finish_code_{-1};
+  void RecordFinishStatus(const grpc::Status& status);
+  /// Parks until new credentials/connection/shutdown, applies backoff
+  /// otherwise. Call between reconnect attempts.
+  void WaitBeforeReconnect();
 
   // Stream type interface
   [[nodiscard]] bool PrepareStream(grpc::ClientContext* context);
@@ -268,6 +287,7 @@ protected:
   CachedGauge broker_state_connecting_{nullptr};
   CachedGauge broker_state_active_{nullptr};
   CachedGauge broker_state_shut_down_{nullptr};
+  CachedGauge broker_state_auth_rejected_{nullptr};
   void UpdateBrokerStateMetrics(ClientState state);
 };
 
