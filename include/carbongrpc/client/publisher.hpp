@@ -157,6 +157,7 @@ PublishResult Publisher<MessageType>::PublishMessage(UnpackedMessage* message) {
   }
 
   queue_size_bytes_ += byte_size;
+  message->queued_bytes = byte_size;
   message->id = next_assignable_id_;
   next_assignable_id_++;
 
@@ -192,6 +193,13 @@ void Publisher<MessageType>::WaitUntilPublishesComplete() {
   while (!queued_messages_.empty()) {
     queue_condition_.wait(lock);
   }
+}
+
+// Caller holds queue_lock_.
+template<typename MessageType>
+void Publisher<MessageType>::ReleaseQueuedBytes(UnpackedMessage* message) {
+  queue_size_bytes_ -= std::min(queue_size_bytes_, message->queued_bytes);
+  message->queued_bytes = 0;
 }
 
 template<typename MessageType>
@@ -691,10 +699,7 @@ void Publisher<MessageType>::PublishMessages() {
 
           queued_messages_.pop_front();
           pending_messages_ = (int)queued_messages_.size();
-          queue_size_bytes_ = 0;
-          for (UnpackedMessage* message : queued_messages_) {
-            queue_size_bytes_ += message->message->ByteSizeLong();
-          }
+          ReleaseQueuedBytes(unpacked);
         }
 
         auto now = clock::now();
@@ -820,9 +825,8 @@ void Publisher<MessageType>::MessageConfirmed(unsigned long long id) {
     queued_messages_.erase(queued_messages_.begin(), iter);
 
     pending_messages_ = (int)queued_messages_.size();
-    queue_size_bytes_ = 0;
-    for (UnpackedMessage* message : queued_messages_) {
-      queue_size_bytes_ += message->message->ByteSizeLong();
+    for (UnpackedMessage* message : finished) {
+      ReleaseQueuedBytes(message);
     }
   }
 
