@@ -68,6 +68,10 @@ public:
 
     unsigned long long id;
 
+    // Size counted into queue_size_bytes_ at enqueue. Kept so removal never re-reads a message the
+    // publisher thread may be packing.
+    size_t queued_bytes = 0;
+
     clock::time_point time_received;
     clock::time_point time_retrieved;
     clock::time_point time_delivered;
@@ -225,6 +229,7 @@ protected:
   CachedGauge bytes_queued_{nullptr};
   CachedGauge queue_utilization_percent_{nullptr};
   void UpdateQueueMetrics();
+  void ReleaseQueuedBytes(UnpackedMessage* message);
 
   CachedHistogram time_in_queue_{nullptr};
   CachedHistogram time_sending_{nullptr};
