@@ -745,13 +745,15 @@ void Broker<RequestType, ResponseType, ServiceType>::PublishMessages() {
         }
       }
 
+      // The callback may free the message, so read it first.
+      UpdateTimingMetrics(unpacked);
+
       std::scoped_lock<std::mutex> callback_lock(callback_lock_);
       if (on_message_published_ != nullptr) {
         on_message_published_(unpacked);
       }
 
       UpdateQueueMetrics();
-      UpdateTimingMetrics(unpacked);
     } else {
       break;  // write failure means the stream is dead, so exit the loop and
               // restart the stream
