@@ -705,6 +705,9 @@ void Publisher<MessageType>::PublishMessages() {
         auto now = clock::now();
         unpacked->time_delivered = now;
 
+        // The callback may free the message, so read it first.
+        UpdateTimingMetrics(unpacked);
+
         std::scoped_lock<std::mutex> callback_lock(callback_lock_);
         if (on_message_published_ != nullptr) {
           on_message_published_(unpacked);
@@ -713,7 +716,6 @@ void Publisher<MessageType>::PublishMessages() {
         queue_condition_.notify_all();
 
         UpdateQueueMetrics();
-        UpdateTimingMetrics(unpacked);
       }
     } else {
       break;  // write failure means the stream is dead, so exit the loop and
@@ -833,6 +835,8 @@ void Publisher<MessageType>::MessageConfirmed(unsigned long long id) {
   auto now = clock::now();
   for (auto m : finished) {
     m->time_confirmed = now;
+    // The callback may free the message, so read it first.
+    UpdateTimingMetrics(m);
   }
 
   std::scoped_lock<std::mutex> callback_lock(callback_lock_);
@@ -847,9 +851,6 @@ void Publisher<MessageType>::MessageConfirmed(unsigned long long id) {
   queue_condition_.notify_all();
 
   UpdateQueueMetrics();
-  for (auto message : finished) {
-    UpdateTimingMetrics(message);
-  }
 }
 
 template<typename MessageType>
