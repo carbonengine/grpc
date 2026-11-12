@@ -27,6 +27,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     option(BUILD_DOCUMENTATION "Build Documentation" ${BUILD_DOCUMENTATION_DEFAULT_FLAG})
 
     if (BUILD_TESTING)
+        include(CTest)
         add_subdirectory(tests/logging)
     endif ()
 
