@@ -5,7 +5,7 @@
 #include "absl/log/log.h"
 #include "absl/log/initialize.h"
 
-#include <CCPLog.h>
+#include <CcpLog.h>
 
 #include <iostream>
 
