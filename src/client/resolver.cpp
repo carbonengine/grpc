@@ -2,11 +2,6 @@
 #include "carbongrpc/client/resolver.h"
 using namespace monolith_grpc::client;
 
-#include <atomic>
-#include <chrono>
-#include <iostream>
-#include <thread>
-
 #ifdef _POSIX_VERSION
 	#include <arpa/inet.h>
 	#include <netdb.h>

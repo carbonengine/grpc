@@ -1,8 +1,6 @@
 // Copyright © 2025 CCP ehf.
 #include "carbongrpc/client/stream_counter.h"
 
-#include <mutex>
-
 std::atomic_uint StreamCounter::stream_id_ = {0};
 std::once_flag stream_id_initialized;
 

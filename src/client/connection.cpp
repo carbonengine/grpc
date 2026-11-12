@@ -2,8 +2,6 @@
 #include "carbongrpc/client/connection.h"
 using namespace monolith_grpc::client;
 
-#include <thread>
-
 // prometheus
 #include "counter_interface.h"
 #include "gauge_interface.h"

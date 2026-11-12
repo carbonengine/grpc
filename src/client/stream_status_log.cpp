@@ -1,7 +1,6 @@
 // Copyright © 2025 CCP ehf.
 #include "carbongrpc/client/stream_status_log.h"
 
-#include <utility>
 using namespace monolith_grpc::client;
 
 StreamStatus::StreamStatus(unsigned int stream_id, ::grpc::Status  status)
