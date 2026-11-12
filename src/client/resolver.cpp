@@ -7,13 +7,9 @@ using namespace monolith_grpc::client;
 #include <iostream>
 #include <thread>
 
-#if __APPLE__
-// c-ares doesn't include these headers for us on macOS
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <sys/select.h>
-#include <sys/socket.h>
+#ifdef _POSIX_VERSION
+	#include <arpa/inet.h>
+	#include <netdb.h>
 #endif
 
 std::string Resolver::servers_;
