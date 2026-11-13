@@ -1,7 +1,7 @@
 # Copyright © 2025 CCP ehf.
 cmake_minimum_required(VERSION 3.16)
 
-option(BUILD_TESTING "Build and run tests." OFF)
+option(BUILD_TESTING "Build and run tests." ON)
 if (BUILD_TESTING)
     list(APPEND VCPKG_MANIFEST_FEATURES "tests")
 endif()
@@ -27,6 +27,7 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     option(BUILD_DOCUMENTATION "Build Documentation" ${BUILD_DOCUMENTATION_DEFAULT_FLAG})
 
     if (BUILD_TESTING)
+        include(CTest)
         add_subdirectory(tests/logging)
     endif ()
 

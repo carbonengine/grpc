@@ -1,12 +1,8 @@
 // Copyright © 2025 CCP ehf.
-#include <list>
-#include <mutex>
-#include <string>
-#include <memory>
 
 #include <absl/log/log_sink_registry.h>
 #include <absl/log/globals.h>
-#include <CCPLog.h>
+#include <CcpLog.h>
 
 #include "carbongrpc/client/grpc_log.h"
 

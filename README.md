@@ -5,14 +5,15 @@ It is intended to keep common gRPC project structure, packaging, and generated-c
 
 ## Building
 
-Configure the project with CMake using the preset for your platform:
+Build systems are generated using CMake. Configuration presets are provided to standardize the CMake configuration 
+process for the target `(architecture, platform, build type)` triplet.
 
 ```sh
-cmake -S . --preset vs-x64-windows-debug
+cmake -S . --preset x64-windows-debug
 ```
 
 ```sh
-cmake -S . --preset nmc-universal-osx-debug
+cmake -S . --preset arm64-osx-debug
 ```
 
 ## 📄 License and Legal Notices

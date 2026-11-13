@@ -1,3 +1,5 @@
+// Copyright © 2026 CCP ehf.
+
 package MacOS
 
 import jetbrains.buildServer.configs.kotlin.DslContext
@@ -105,13 +107,13 @@ class CarbonBuildMacOS(buildName: String, configType: String, preset: String, ag
         exec {
             name = "Build"
             path = "cmake"
-            arguments = "--build %env.CMAKE_BUILD_FOLDER% --config %env.CMAKE_CONFIG_TYPE% --target %env.CMAKE_BUILD_TARGETS% --parallel %env.CMAKE_BUILD_PARALLEL_LEVEL%"
+            arguments = "--build %env.CMAKE_BUILD_FOLDER% --config %env.CMAKE_CONFIG_TYPE% --target %env.CMAKE_BUILD_TARGETS%"
         }
         exec {
             name = "Run Tests"
             workingDir = "%env.CMAKE_BUILD_FOLDER%"
             path = "ctest"
-            arguments = "-C %env.CMAKE_CONFIG_TYPE% -V --output-on-failure --output-junit %env.CTEST_JUNIT_OUTPUT_FILE% -j %env.CTEST_PARALLEL_LEVEL%"
+            arguments = "-C %env.CMAKE_CONFIG_TYPE% -V --output-on-failure --output-junit %env.CTEST_JUNIT_OUTPUT_FILE%"
         }
         exec {
             name = "Package artifact"
@@ -122,12 +124,6 @@ class CarbonBuildMacOS(buildName: String, configType: String, preset: String, ag
             name = "Upload symbols to sentry"
             path = "sentry-cli"
             arguments = "upload-dif --wait %env.CMAKE_BUILD_FOLDER%"
-            param("script.content", """
-                #!/usr/bin/env bash -eu
-                filesWithSymbols = (
-                  # insert your binary files with symbols here!
-                )
-            """.trimIndent())
         }
     }
 

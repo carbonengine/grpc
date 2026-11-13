@@ -37,3 +37,5 @@ target_link_libraries(client
 set_target_properties(client PROPERTIES
         OUTPUT_NAME "carbon_grpc_client"
 )
+
+target_precompile_headers(client PRIVATE StdAfx.h)

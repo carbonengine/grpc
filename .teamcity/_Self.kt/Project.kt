@@ -1,3 +1,5 @@
+// Copyright © 2026 CCP ehf.
+
 package _Self
 
 import _Self.buildTypes.*
@@ -18,6 +20,7 @@ object Project : Project({
     
     subProject(Windows.Project)
     subProject(MacOS.Project)
+    subProject(Linux.Project)
 
     buildType(SyncToMirror)
 })
