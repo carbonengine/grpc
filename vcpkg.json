@@ -11,7 +11,7 @@
     },
     {
       "name": "grpc",
-      "version>=": "1.41.0"
+      "version>=": "1.81.1"
     },
     {
       "name": "carbon-prometheus",
