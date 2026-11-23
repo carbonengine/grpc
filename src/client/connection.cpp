@@ -132,7 +132,8 @@ void Connection::Connect(const ConnectParams& params) {
       }
     }
 
-    if (new_channel->GetState(false) == grpc_connectivity_state::GRPC_CHANNEL_READY) {
+    auto new_channel_state = new_channel->GetState(false);
+    if (new_channel_state == grpc_connectivity_state::GRPC_CHANNEL_READY) {
       std::scoped_lock<std::mutex> metrics_lock(metrics_lock_);
       if (metrics_.connections_succeeded_ != nullptr) {
         metrics_.connections_succeeded_->Increment();
@@ -147,6 +148,7 @@ void Connection::Connect(const ConnectParams& params) {
 
     // Replace the active channel
     channel_ = new_channel;
+    old_channel_state_ = new_channel_state;
     channel_replaced_ = true;
     channel_condition_.notify_all();
 
@@ -249,20 +251,24 @@ void Connection::UpdateChannelState() {
     // If Connect() replaced the channel, then we need to re-initialize
     // old_state so we're not tracking changes from the old channel to the
     // new channel.  This also prevents duplicate connections_attempted
-    // metrics.
+    // metrics.  If the attempt already finished, keep the state Connect()
+    // saw so the READY or TRANSIENT_FAILURE transition is still counted.
     if (channel_replaced_ == true) {
-      old_channel_state_ = channel_state_;
+      if (channel_state_ == grpc_connectivity_state::GRPC_CHANNEL_IDLE ||
+          channel_state_ == grpc_connectivity_state::GRPC_CHANNEL_CONNECTING) {
+        old_channel_state_ = channel_state_;
+      }
       channel_replaced_ = false;
       channel_state_notification_pending_ = false;
     }
 
-    bool got_notification = false;
     if (status == grpc::CompletionQueue::NextStatus::GOT_EVENT && ok == true && tag == static_cast<void*>(channel_.get())) {
-      got_notification = true;
       channel_state_notification_pending_ = false;
     }
 
-    if (got_notification == true || (channel_state_ != old_channel_state_)) {
+    // Only real changes count; a stale notification for the current state
+    // must not count the same transition twice.
+    if (channel_state_ != old_channel_state_) {
       UpdateChannelStateMetrics(old_channel_state_, channel_state_);
       old_channel_state_ = channel_state_;
     }
