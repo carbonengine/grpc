@@ -27,6 +27,7 @@ target_link_libraries(logging_test PRIVATE client GTest::gtest GTest::gtest_main
 gtest_discover_tests(
         logging_test capiTests
         DISCOVERY_MODE PRE_TEST
+        DISCOVERY_TIMEOUT 30
 )
 
 if(MSVC)
