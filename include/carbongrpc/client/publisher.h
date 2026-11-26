@@ -202,6 +202,10 @@ protected:
   unsigned long long next_assignable_id_;
   bool reader_exited_;
   bool writer_exited_;
+  // The connection under the stream stopped being ready (a GOAWAY, e.g. the server's max connection age):
+  // stop writing, half-close and read confirms until the server ends the stream, so nothing it already
+  // took is sent again on the next one.
+  std::atomic<bool> rotating_{false};
 
   // Ping
   bool pings_enabled_;

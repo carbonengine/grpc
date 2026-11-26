@@ -543,6 +543,7 @@ bool Publisher<MessageType>::SetUpStream() {
 
   last_confirmed_message_ = 0;
   next_message_to_send_ = 1;
+  rotating_ = false;
 
   return true;
 }
@@ -571,8 +572,24 @@ void Publisher<MessageType>::ProcessMessages() {
   }
 
   // Wait for processing to complete
+  bool was_ready = false;
   while (!writer_exited_) {
-    WithConnection([=](Connection& connection) { connection.UpdateChannelState(); });
+    auto channel_state = grpc_connectivity_state::GRPC_CHANNEL_SHUTDOWN;
+    WithConnection([&](Connection& connection) {
+      connection.UpdateChannelState();
+      channel_state = connection.channel_state();
+    });
+
+    // A GOAWAY shows up as the channel leaving READY while this stream keeps running on the draining
+    // transport. Only with confirms can the drain know the server has everything.
+    if (confirms_enabled_ && !rotating_) {
+      if (channel_state == grpc_connectivity_state::GRPC_CHANNEL_READY) {
+        was_ready = true;
+      } else if (was_ready) {
+        rotating_ = true;
+        queue_condition_.notify_all();
+      }
+    }
 
     if (confirms_enabled_ || empty_bidi_enabled_) {
       if (reader.wait_for(std::chrono::milliseconds(1)) == std::future_status::ready) {
@@ -671,6 +688,10 @@ void Publisher<MessageType>::PublishMessages() {
       break;
     }
 
+    if (rotating_) {
+      break;  // half-close; the next stream starts from the first unconfirmed message
+    }
+
     if (unpacked == nullptr || unpacked->message == nullptr) {
       continue;
     }
@@ -733,7 +754,8 @@ void Publisher<MessageType>::ReadConfirms() {
       break;
     }
 
-    if (writer_exited_) {
+    // A rotating stream reads on until the server ends it, after confirming everything
+    if (writer_exited_ && !rotating_) {
       break;
     }
 
@@ -769,7 +791,7 @@ typename Publisher<MessageType>::UnpackedMessage* Publisher<MessageType>::GetNex
   std::unique_lock<std::mutex> queue_lock(queue_lock_);
   Publisher<MessageType>::UnpackedMessage* result = PeekNextMessage(queue_lock);
 
-  while (result == nullptr && !shutting_down_ && !request_disconnect_ && !reader_exited_) {
+  while (result == nullptr && !shutting_down_ && !request_disconnect_ && !reader_exited_ && !rotating_) {
     queue_condition_.wait(queue_lock);
     result = PeekNextMessage(queue_lock);
   }
